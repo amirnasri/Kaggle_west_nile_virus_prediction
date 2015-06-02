@@ -222,8 +222,8 @@ def train():
     X_train, X_test, y_train, y_test = train_test_split(X[:100, :], y[:100], test_size = 0.33)
     clf.fit(X_train, y_train)
 
-    probas = clf.predict_proba(X_test)[:,1]
-    print("ROC score", metrics.roc_auc_score(y_test, probas))
+    probas = clf.predict_proba(X_train)[:,1]
+    print("ROC score", metrics.roc_auc_score(np.ravel(y_train), probas))
     return mean, std     
     
 
