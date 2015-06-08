@@ -14,6 +14,7 @@ from sklearn.utils import shuffle
 from sklearn.linear_model.logistic import LogisticRegression
 from sklearn.cross_validation import train_test_split
 from sys import exit
+from IPython.core.debugger import Tracer
 
 species_map = {'CULEX RESTUANS' : "100000",
               'CULEX TERRITANS' : "010000", 
@@ -127,9 +128,10 @@ def assemble_X(base, weather):
     for b in base:
         date = b["Date"]
         lat, long = b["Latitude"], b["Longitude"]
-        case = [date.year, date.month, date.day, lat, long]
+        #case = [date.year, date.month, date.day, lat, long]
+        case = []
         # Look at a selection of past weather values
-        for days_ago in [1,3,7,14]:
+        for days_ago in range(1, 8): #[1,3,7,14]
             day = date - datetime.timedelta(days=days_ago)
             for obs in ["Tmax","Tmin","Tavg","DewPoint","WetBulb","PrecipTotal","Depart"]:
                 station = closest_station(lat, long)
@@ -141,17 +143,14 @@ def assemble_X(base, weather):
         # Doesn't have this column, so in that case use 1. This accidentally
         # Takes into account multiple entries that result from >50 mosquitos
         # on one day. 
-        for repeat in range(scaled_count(b)):
-            X.append(case)    
+        X.append(case)    
     X = np.asarray(X, dtype=np.float32)
     return X
     
 def assemble_y(base):
     y = []
     for b in base:
-        present = b["WnvPresent"]
-        for repeat in range(scaled_count(b)):
-            y.append(present)    
+        y.append(b["WnvPresent"])    
     return np.asarray(y, dtype=np.int32).reshape(-1,1)
 
 
@@ -219,30 +218,38 @@ def train():
     clf = LogisticRegression(C = 10)
     X, y = shuffle(X, y, random_state=123)
     
-    X_train, X_test, y_train, y_test = train_test_split(X[:100, :], y[:100], test_size = 0.33)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.33)
     clf.fit(X_train, y_train)
 
-    probas = clf.predict_proba(X_train)[:,1]
-    print("ROC score", metrics.roc_auc_score(np.ravel(y_train), probas))
-    return mean, std     
+    probas = clf.predict_proba(X_test)[:,1]
+    print("ROC score", metrics.roc_auc_score(np.ravel(y_test), probas))
+    
+    clf.fit(X, y)
+    return clf, mean, std     
     
 
-def submit(net, mean, std):
+def submit(clf, mean, std):
     weather = load_weather()
     testing = load_testing()
     X = assemble_X(testing, weather) 
     normalize(X, mean, std)
-    predictions = net.predict_proba(X)[:,0]    
+    predictions = clf.predict_proba(X)[:,1]
+    #Tracer()()    
     #
     out = csv.writer(open("west_nile.csv", "w"))
     out.writerow(["Id","WnvPresent"])
     for row, p in zip(testing, predictions):
         out.writerow([row["Id"], p])
 
+    out = csv.writer(open("west_nile_binary.csv", "w"))
+    out.writerow(["Id","WnvPresent"])
+    for row, p in zip(testing, (predictions < 0.5)):
+        out.writerow([row["Id"], p])
+
 
 if __name__ == "__main__":
-    mean, std = train()
-    #submit(net, mean, std)
+    clf, mean, std = train()
+    submit(clf, mean, std)
 
 
 
