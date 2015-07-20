@@ -15,6 +15,7 @@ from sklearn.linear_model.logistic import LogisticRegression
 from sklearn.cross_validation import train_test_split
 from sys import exit
 from IPython.core.debugger import Tracer
+from sklearn import svm
 
 species_map = {'CULEX RESTUANS' : "100000",
               'CULEX TERRITANS' : "010000", 
@@ -104,15 +105,17 @@ def closest_station(lat, long):
     return np.argmin(dist2)
        
 def normalize(X, mean=None, std=None):
-    count = X.shape[1]
-    if mean is None:
-        mean = np.nanmean(X, axis=0)
-    for i in range(count):
-        X[np.isnan(X[:,i]), i] = mean[i]
-    if std is None:
-        std = np.std(X, axis=0)
-    for i in range(count):
-        X[:,i] = (X[:,i] - mean[i]) / std[i]
+    for X_ in X.values():
+        X_ = np.array(X_)
+        count = X_.shape[1]
+        if mean is None:
+            mean = np.nanmean(X_, axis=0)
+        for i in range(count):
+            X_[np.isnan(X_[:,i]), i] = mean[i]
+        if std is None:
+            std = np.std(X_, axis=0)
+        for i in range(count):
+            X_[:,i] = (X_[:,i] - mean[i]) / std[i]
     return mean, std
     
 def scaled_count(record):
@@ -123,13 +126,15 @@ def scaled_count(record):
     return int(np.ceil(record["NumMosquitos"] / SCALE))
     
     
-def assemble_X(base, weather):
-    X = []
+def assemble_X_y(base, weather):
+    X = dict()
+    y = dict()
     for b in base:
         date = b["Date"]
         lat, long = b["Latitude"], b["Longitude"]
         #case = [date.year, date.month, date.day, lat, long]
-        case = []
+        year = date.year
+        case = [lat, long]
         # Look at a selection of past weather values
         for days_ago in range(1, 8): #[1,3,7,14]
             day = date - datetime.timedelta(days=days_ago)
@@ -142,10 +147,13 @@ def assemble_X(base, weather):
         # Weight each observation by the number of mosquitos seen. Test data
         # Doesn't have this column, so in that case use 1. This accidentally
         # Takes into account multiple entries that result from >50 mosquitos
-        # on one day. 
-        X.append(case)    
-    X = np.asarray(X, dtype=np.float32)
-    return X
+        # on one day.
+        X.setdefault(year, []).append(case) 
+        if ("WnvPresent" in b.keys()):
+            y.setdefault(year, []).append(b["WnvPresent"]) 
+        #X.append(case)    
+    #X = np.asarray(X, dtype=np.float32)
+    return X, y
     
 def assemble_y(base):
     y = []
@@ -168,9 +176,9 @@ def train():
     weather = load_weather()
     training = load_training()
     
-    X = assemble_X(training, weather)
+    X, y = assemble_X_y(training, weather)
     mean, std = normalize(X)
-    y = assemble_y(training)
+    #y = assemble_y(training)
     '''    
     input_size = len(X[0])
     
@@ -216,7 +224,9 @@ def train():
     )
     '''
     clf = LogisticRegression(C = 10)
+    #clf = svm.SVC()
     X, y = shuffle(X, y, random_state=123)
+    
     
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.33)
     clf.fit(X_train, y_train)
@@ -224,23 +234,35 @@ def train():
     probas = clf.predict_proba(X_test)[:,1]
     print("ROC score", metrics.roc_auc_score(np.ravel(y_test), probas))
     
+    print("fitting...")
     clf.fit(X, y)
+    
+    #clf.fit(X[:100, :], y[:100])
+    #Tracer()()
+    #probas = clf.predict(X[:100, :])[:,1]
+    #y_pred = (probas > 0.5).astype(int)
+    
+    #print(np.abs(y_pred-y[:100]).sum()) 
+
     return clf, mean, std     
     
 
 def submit(clf, mean, std):
     weather = load_weather()
     testing = load_testing()
-    X = assemble_X(testing, weather) 
+    X, y = assemble_X_y(testing, weather) 
     normalize(X, mean, std)
+    print("predicting...")
     predictions = clf.predict_proba(X)[:,1]
     #Tracer()()    
     #
+    print("writing to file...")
     out = csv.writer(open("west_nile.csv", "w"))
     out.writerow(["Id","WnvPresent"])
     for row, p in zip(testing, predictions):
         out.writerow([row["Id"], p])
 
+    print("writing to file...")
     out = csv.writer(open("west_nile_binary.csv", "w"))
     out.writerow(["Id","WnvPresent"])
     for row, p in zip(testing, (predictions < 0.5)):
