@@ -8,6 +8,7 @@ import pdb
 import datetime
 
 def load_weather():
+    print("loading weather data ...")
     weather = pd.read_csv('weather.csv', na_values = ['M', '-'])  
     
     # Select only relevant columns
@@ -67,8 +68,41 @@ def load_weather():
             elif (np.isnan(val1)):
                 weather.loc[row + 1, col] = val0
 
-            
-    return weather
+    print("done.")
+    return weather[select_columns + ['Year', 'Month', 'Day']]#[['Date', 'Station', 'Tavg']]
+
+def get_day_of_year(date):
+    
+    ymd = [int(s) for s in date.split('-')]
+    date = datetime.date(ymd[0], ymd[1], ymd[2]).isocalendar()[1:3]
+    year_first = datetime.date(ymd[0], 1, 1).isocalendar()[1:3]
+    day_of_year = 1 + (date[1] - year_first[1]) + (date[0] - year_first[0]) * 7
+    return day_of_year, date[0]  
+    
+def load_train():
+    print("loading train data ...")
+    train = pd.read_csv('train.csv')#[['Date', 'Trap', 'Latitude', 'Longitude', 'WnvPresent']]
+
+    # Remove unnecessary columns
+    columns = [u'Date', u'Species', u'Trap', u'Latitude', u'Longitude', u'AddressAccuracy', u'NumMosquitos', u'WnvPresent']
+    train = train[columns]
+    
+    # Map species to categorical values in range 1-7. The values are sorted by the probability of wnv.
+    wnv_prob = train.groupby('Species').WnvPresent.sum()
+    species_map = dict(zip(wnv_prob.keys(), range(1, len(wnv_prob) + 1)))
+    
+    train.Species = train.Species.apply(lambda x: species_map[x])
+    
+    # Do a similar mapping for traps
+    wnv_prob = train.groupby('Trap').WnvPresent.sum()
+    trap_map = dict(zip(wnv_prob.keys(), range(1, len(wnv_prob) + 1)))
+    train.Trap = train.Trap.apply(lambda x: trap_map[x])
+    
+    # Add day of year to the table
+    train[['Day_of_year', 'Week']] = train.Date.apply(get_day_of_year)         
+    print("done.")
+    return train
+
 
 def dist(point1, point2):
     return np.sum((point1 - point2)**2)
@@ -80,27 +114,35 @@ station2 = [41.786, -87.752]
 def find_closest_weather_station(lat, long):
     point1 = np.array([lat, long])
     return np.argmin([dist(point1, np.array(station1)), dist(point1, np.array(station2))]) + 1
-    
-def load_train():
-    train = pd.read_csv('train.csv')
+
+def merge_train_weather(train, weather):
+     
     weather_columns = weather.columns.tolist()
     weather_columns.remove('Date')
+    weather_columns.remove('Station')
     train_columns = train.columns.tolist()
     train_columns.remove('Date')
     
     # Add closest station for each trap
     train['Station'] = [find_closest_weather_station(lat, long) for lat, long in zip(train.Latitude, train.Longitude)]
     # Add weather date for the past and also the following 7 days
+    weather_extended = pd.DataFrame()
     for day in (range(-7, 0) + range(1, 8)):
-        train['Date-new'] = [(datetime.date(y, m, d) - datetime.timedelta(day)).strftime("20%y-%m-%d") for y, m, d in [map(lambda x : int(x), date.split('-')) for date in train.Date]]
-        train = pd.concat([train, pd.merge(train, weather, left_on = ['Date-new', 'Station'], right_on = ['Date', 'Station'])[train_columns + weather_columns]], axis = 1)
-    return train1
+        train['Date_new'] = [(datetime.date(y, m, d) - datetime.timedelta(day)).strftime("20%y-%m-%d") for y, m, d in [map(lambda x : int(x), date.split('-')) for date in train.Date]]
+        weather_extended = pd.concat([weather_extended, pd.merge(train, weather, left_on = ['Date_new', 'Station'], right_on = ['Date', 'Station'])[weather_columns]], axis = 1)
+    
+    pdb.set_trace()
+    
+    train.drop('Date_new', axis = 1, inplace=True)
+    train_weather = pd.concat([train, weather_extended], axis = 1)
+    train_weather.to_pickle('train_weather.pkl')
+    return train_weather
 
         
      
 
 if __name__ == '__main__':
-    pdb.set_trace()
     weather = load_weather()
-    train = load_train()    
+    train = load_train()
+    train_weather = load_train_weather()    
             
