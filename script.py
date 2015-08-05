@@ -58,7 +58,7 @@ def load_weather():
     
     # For the remaining missing values, get the missing value from the other stations for the same date
     
-    # Assert that weather table consists of two consecutive rows for station 1 and 2
+    # Assert that weather table consists of consecutive rows for station 1 and 2
     date_station = np.unique([tuple(v.values.tolist()) for  (k,v) in weather.groupby('Date')['Station']])
     assert (date_station.shape == (1, 2) and date_station[0].tolist() == [1, 2]), \
         "weather table should consists of two consecutive rows for stations 1 and 2"
@@ -67,6 +67,7 @@ def load_weather():
     columns = weather.columns.tolist()
     columns = [col for col in columns if not col in ['Station', 'Date', 'Year']]
     
+    '''
     for col in columns:
         for row in range(0, weather.shape[0], 2):
             val0 = weather.loc[row, col]
@@ -75,10 +76,22 @@ def load_weather():
                 weather.loc[row, col] = val1
             elif (np.isnan(val1)):
                 weather.loc[row + 1, col] = val0
+    '''            
     
+    weather_st1 = weather[0::2][columns]
+    weather_st2 = weather[1::2][columns]
     
+    weather_st2_index = weather_st2.index
+    weather_st2.index = weather_st1.index 
+    weather_st1[pd.isnull(weather_st1)] = weather_st2
+    weather_st2[pd.isnull(weather_st2)] = weather_st1
+    weather_st2.index = weather_st2_index
+    
+    weather_impuned = pd.concat([weather_st1, weather_st2]).sort_index()
+    weather_impuned = pd.concat([weather_impuned, weather[['Station', 'Date', 'Year']]], axis = 1)
+        
     print("done.")
-    return weather[select_columns]#[['Date', 'Station', 'Tavg']]
+    return weather_impuned[select_columns]#[['Date', 'Station', 'Tavg']]
 
 def get_day_of_year(date):
     
@@ -161,13 +174,13 @@ def normalize_matrix(X):
     pdb.set_trace()
     mean_X = np.mean(X, axis = 0)
     std_X = np.std(X, axis = 0)
+    std_X[std_X == 0] = 1
     X = X - mean_X
     X = X / std_X
     return X, mean_X, std_X
     
         
 def train_GBT(train_weather):
-    
     
     params = {"n_estimators": 1000, "learning_rate": 0.0035, \
                       "loss": "deviance", \
@@ -187,7 +200,6 @@ def train_GBT(train_weather):
     scores = []
     
     for year in range(2007, 2014, 2):
-        pdb.set_trace()
         train_index = np.array(train_weather.Year != year)
         test_index = np.array(train_weather.Year == year)
         gbc.fit(X[train_index], y[train_index])
