@@ -14,7 +14,8 @@ import pdb
 import datetime
 import sklearn.ensemble
 from sklearn.metrics import roc_auc_score
-
+import csv
+import sklearn.linear_model
 
 class Kaggle_WNV():
 
@@ -235,7 +236,6 @@ class Kaggle_WNV():
                           "max_features": 2, "max_depth": 2, \
                           "random_state": 788942,  \
                           "subsample": 1, "verbose": 50}
-        '''
         params = {"n_estimators": 1000, "learning_rate": 0.0035, \
                           "loss": "deviance", \
                           "max_features": 8, "max_depth": 7, \
@@ -246,13 +246,15 @@ class Kaggle_WNV():
         gbc = sklearn.ensemble.GradientBoostingClassifier()
         
         gbc.set_params(**params)
+        '''
+        gbc = sklearn.linear_model.LogisticRegression(C=.1)
         
         y = np.array(train_weather.WnvPresent).ravel()
         train_weather.drop('WnvPresent', axis = 1, inplace = True)
         X = np.array(train_weather)
         X = Kaggle_WNV.normalize_matrix(X)[0]
         
-        '''
+        
         scores = []
         
         for year in range(2007, 2014, 2):
@@ -265,10 +267,12 @@ class Kaggle_WNV():
             score = roc_auc_score(y[test_index], y_test_pred)
             print score
             scores.append(score)
-            pdb.set_trace()
+            #pdb.set_trace()
         
         print scores
-        '''
+        
+        pdb.set_trace()
+        
 
         print("training gbc ...")
         gbc.fit(X, y)
@@ -283,12 +287,11 @@ class Kaggle_WNV():
         y_test_pred = self.gbc.predict_proba(X)[:, 1]
         pdb.set_trace()
         
-        f = open('submit_file', 'w')
-        f.write("Id, WmnPresent\n")
+        out = csv.writer(open('submit_file.csv', 'w'))
+        out.writerow(["Id", "WnvPresent"])
         for id, pred_val in zip(range(1, len(y_test_pred) + 1), y_test_pred):
-            f.write("%d, %f\n" % (id, pred_val))
+            out.writerow([id, pred_val])
             
-        f.close()
 
 if __name__ == '__main__':
     kw = Kaggle_WNV()
